@@ -1,0 +1,122 @@
+# Students Grading Dataset - Full Data Preprocessing Pipeline
+
+import pandas as pd
+import numpy as np
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import MinMaxScaler, KBinsDiscretizer
+from sklearn.linear_model import LinearRegression
+from sklearn.cluster import KMeans
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Load the dataset
+df = pd.read_csv("Students_Grading_Dataset.csv")
+
+# ----------------------------
+# 1. DATA CLEANING
+# ----------------------------
+
+# Drop duplicates
+df = df.drop_duplicates()
+
+# Handle missing values
+df = df.fillna(df.mode().iloc[0])
+
+# Outlier removal using IQR for numerical columns
+num_cols = df.select_dtypes(include=[np.number]).columns
+for col in num_cols:
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    IQR = Q3 - Q1
+    lower = Q1 - 1.5 * IQR
+    upper = Q3 + 1.5 * IQR
+    df = df[(df[col] >= lower) & (df[col] <= upper)]
+
+# ----------------------------
+# 2. DATA INTEGRATION (Synthetic Data)
+# ----------------------------
+synthetic_data = pd.DataFrame({
+    'Student_ID': ['SX001', 'SX002', 'SX003'],
+    'First_Name': ['Lina', 'Tom', 'Raj'],
+    'Last_Name': ['Ali', 'Hardy', 'Patel'],
+    'Email': ['lina@uni.com', 'tom@uni.com', 'raj@uni.com'],
+    'Gender': ['Female', 'Male', 'Male'],
+    'Age': [21, 22, 23],
+    'Department': ['CS', 'Engineering', 'Math'],
+    'Attendance (%)': [90, 85, 87],
+    'Midterm_Score': [80, 70, 75],
+    'Final_Score': [85, 88, 90],
+    'Projects_Score': [70, 75, 78],
+    'Total_Score': [78, 77, 81],
+    'Grade': ['B', 'B', 'A'],
+    'Study_Hours_per_Week': [15, 18, 20],
+    'Extracurricular_Activities': ['Yes', 'No', 'Yes'],
+    'Internet_Access_at_Home': ['Yes', 'Yes', 'Yes'],
+    'Parent_Education_Level': ['Bachelor', 'Master', 'PhD'],
+    'Family_Income_Level': ['High', 'Medium', 'High'],
+    'Stress_Level (1-10)': [4, 5, 3],
+    'Sleep_Hours_per_Night': [7.5, 6.5, 7.0]
+})
+
+# Concatenate to the original dataset
+df = pd.concat([df, synthetic_data], ignore_index=True)
+
+# ----------------------------
+# 3. DATA REDUCTION
+# ----------------------------
+
+# PCA on numerical features
+numerical_df = df.select_dtypes(include=[np.number])
+scaler = MinMaxScaler()
+scaled_data = scaler.fit_transform(numerical_df)
+pca = PCA(n_components=2)
+pca_result = pca.fit_transform(scaled_data)
+
+# Feature selection via correlation with Total_Score
+correlations = numerical_df.corr()['Total_Score'].sort_values(ascending=False)
+important_features = correlations[1:4].index.tolist()
+
+# ----------------------------
+# 4. DATA TRANSFORMATION
+# ----------------------------
+
+# Normalize all numerical features
+normalized_data = pd.DataFrame(scaler.fit_transform(numerical_df), columns=numerical_df.columns)
+
+# Discretize Total_Score into 5 bins (A to F)
+discretizer = KBinsDiscretizer(n_bins=5, encode='ordinal', strategy='uniform')
+df['Score_Bin'] = discretizer.fit_transform(df[['Total_Score']])
+
+def bin_to_grade(bin_val):
+    return ['F', 'D', 'C', 'B', 'A'][int(bin_val)]
+
+df['Score_Grade'] = df['Score_Bin'].apply(bin_to_grade)
+
+# ----------------------------
+# 5. DATA REDUCTION TECHNIQUES
+# ----------------------------
+
+# Linear Regression to predict Total_Score
+X = df[important_features]
+y = df['Total_Score']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+model = LinearRegression()
+model.fit(X_train, y_train)
+predictions = model.predict(X_test)
+print("Linear Regression MSE:", mean_squared_error(y_test, predictions))
+
+# KMeans Clustering
+kmeans = KMeans(n_clusters=3, random_state=42)
+kmeans_labels = kmeans.fit_predict(scaled_data)
+df['Cluster'] = kmeans_labels
+
+# Sampling 20% of the data
+sampled_df = df.sample(frac=0.2, random_state=1)
+
+# ----------------------------
+# Save processed dataset
+# ----------------------------
+df.to_csv("processed_students_data.csv", index=False)
+print("Data preprocessing complete. Processed file saved as 'processed_students_data.csv'.")
